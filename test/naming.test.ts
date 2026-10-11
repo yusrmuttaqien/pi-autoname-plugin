@@ -1,0 +1,880 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { Config } from "../src/config.js";
+import type { NamingContext } from "../src/context.js";
+import {
+  RETRIES,
+  UI_RENAME_TIMEOUT_MS,
+  ENVIRONMENTAL_FAILURES,
+  DEFAULT_MAX_WINDOW_NAME_CHARS,
+  DEFAULT_MAX_SESSION_NAME_CHARS,
+  buildAnchorBlock,
+  resolveNamingAnchor,
+  parseGeneratedNames,
+  splitIntoProviderAndModelId,
+  resolveModel,
+  resolveMaxTokens,
+  sanitizeWindowName,
+  sanitizeSessionName,
+  windowNameBudget,
+  sessionNameBudget,
+  generateNames,
+  type GeneratedNames,
+} from "../src/naming.js";
+
+const { createModels, ModelsError } = vi.hoisted(() => ({
+  createModels: vi.fn(),
+  ModelsError: class extends Error {
+    code = "auth";
+    constructor(code = "auth", message = "auth failed") {
+      super(message);
+      this.code = code;
+    }
+  },
+}));
+
+vi.mock("@earendil-works/pi-ai", () => ({ createModels, ModelsError }));
+
+const EN = await import("../src/locales.js").then((m) => m.LOCALE_STRINGS.en);
+
+function mkConfig(overrides: Partial<Config> = {}): Config {
+  return {
+    namingStyle: "natural",
+    namingContextDepth: "recent-user-messages",
+    namingModel: "",
+    language: "en",
+    windowNameMaxLength: undefined,
+    sessionNameMaxLength: undefined,
+    ...overrides,
+  } as Config;
+}
+
+function mkContext(ctx: Partial<NamingContext> = {}): NamingContext {
+  return {
+    firstUserMessage: "Please fix the OAuth callback",
+    recentUserMessages: [],
+    ...ctx,
+  };
+}
+
+function mkResponse(
+  text: string,
+  stopReason: AssistantMessage["stopReason"] = "stop",
+): AssistantMessage {
+  return {
+    role: "assistant",
+    content: [{ type: "text", text }],
+    stopReason,
+    timestamp: Date.now(),
+  } as AssistantMessage;
+}
+
+function mkComplete(impl?: (text: string) => AssistantMessage) {
+  const complete = vi.fn(async (model: unknown, ctx: unknown, options: unknown) => {
+    const userText = (ctx as { messages: { content: { text: string }[] }[] }).messages[0].content[0]
+      .text;
+    return impl
+      ? impl(userText)
+      : mkResponse("WINDOW: OAuth refresh\nSESSION: Fix the OAuth callback retry");
+  });
+  return complete;
+}
+
+function mkCtx(
+  overrides: Partial<ExtensionContext> = {},
+  complete: ReturnType<typeof mkComplete> = mkComplete(),
+): ExtensionContext {
+  return {
+    modelRegistry: { find: vi.fn(() => undefined), complete },
+    model: { provider: "anthropic", id: "claude-test" },
+    signal: undefined,
+    ...overrides,
+  } as unknown as ExtensionContext;
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+describe("constants", () => {
+  it("exposes the documented values", () => {
+    expect(RETRIES).toBe(3);
+    expect(UI_RENAME_TIMEOUT_MS).toBe(10_000);
+    expect([...ENVIRONMENTAL_FAILURES].sort()).toEqual([
+      "missing_auth",
+      "missing_model",
+      "missing_prompt",
+    ]);
+  });
+});
+
+describe("buildAnchorBlock", () => {
+  it("renders cwd and branch", () => {
+    expect(buildAnchorBlock({ cwd: "pi-extensions", branch: "feat/oauth" })).toBe(
+      "cwd: pi-extensions\ngit branch: feat/oauth\n",
+    );
+  });
+
+  it("omits missing fields", () => {
+    expect(buildAnchorBlock({ cwd: "pi-extensions" })).toBe("cwd: pi-extensions\n");
+    expect(buildAnchorBlock({})).toBe("");
+    expect(buildAnchorBlock(undefined)).toBe("");
+  });
+});
+
+describe("resolveNamingAnchor", () => {
+  it("captures cwd basename and the git branch", async () => {
+    const exec = vi.fn(async () => ({
+      stdout: "feat/oauth\n",
+      stderr: "",
+      code: 0,
+      killed: false,
+    }));
+    expect(await resolveNamingAnchor(exec as any, "/home/user/projects/pi-extensions")).toEqual({
+      cwd: "pi-extensions",
+      branch: "feat/oauth",
+    });
+    expect(exec).toHaveBeenCalledWith("git", ["branch", "--show-current"], {
+      cwd: "/home/user/projects/pi-extensions",
+    });
+  });
+
+  it("drops the branch when not a git repo", async () => {
+    const exec = vi.fn(async () => {
+      throw new Error("not a repo");
+    });
+    expect(await resolveNamingAnchor(exec as any, "/tmp/x")).toEqual({ cwd: "x" });
+  });
+});
+
+describe("parseGeneratedNames", () => {
+  it("parses both labeled lines in either order", () => {
+    expect(parseGeneratedNames("WINDOW: Fix auth\nSESSION: Fix the auth callback")).toEqual({
+      window: "Fix auth",
+      session: "Fix the auth callback",
+    });
+    expect(parseGeneratedNames("SESSION: Fix the auth callback\nWINDOW: Fix auth")).toEqual({
+      window: "Fix auth",
+      session: "Fix the auth callback",
+    });
+  });
+
+  it("strips surrounding quotes and whitespace", () => {
+    expect(parseGeneratedNames("WINDOW: \"Fix auth\"\nSESSION: 'Fix it'")).toEqual({
+      window: "Fix auth",
+      session: "Fix it",
+    });
+  });
+
+  it("never misreads a label inside a value", () => {
+    expect(parseGeneratedNames("WINDOW: session: is confusing\nSESSION: real session")).toEqual({
+      window: "session: is confusing",
+      session: "real session",
+    });
+  });
+
+  it("returns undefined fields for missing labels", () => {
+    expect(parseGeneratedNames("WINDOW: only window")).toEqual({
+      window: "only window",
+      session: undefined,
+    });
+    expect(parseGeneratedNames("")).toEqual({ window: undefined, session: undefined });
+  });
+});
+
+describe("sessionNameBudget", () => {
+  it("defaults to DEFAULT_MAX_SESSION_NAME_CHARS", () => {
+    expect(sessionNameBudget(mkConfig())).toBe(DEFAULT_MAX_SESSION_NAME_CHARS);
+  });
+
+  it("a configured value overrides (tighten or relax)", () => {
+    expect(sessionNameBudget(mkConfig({ sessionNameMaxLength: 42 }))).toBe(42);
+    expect(sessionNameBudget(mkConfig({ sessionNameMaxLength: 300 }))).toBe(300);
+  });
+});
+
+describe("windowNameBudget", () => {
+  it("defaults to DEFAULT_MAX_WINDOW_NAME_CHARS", () => {
+    expect(windowNameBudget(mkConfig())).toBe(DEFAULT_MAX_WINDOW_NAME_CHARS);
+  });
+
+  it("a configured value overrides (tighten or relax)", () => {
+    expect(windowNameBudget(mkConfig({ windowNameMaxLength: 24 }))).toBe(24);
+    expect(windowNameBudget(mkConfig({ windowNameMaxLength: 100 }))).toBe(100);
+  });
+});
+
+describe("sanitizeWindowName", () => {
+  it("natural: compacts to at most 4 whole words, undefined below the floor", () => {
+    expect(sanitizeWindowName("natural", "Fix the OAuth callback", 40, "/p")).toBe(
+      "Fix the OAuth callback",
+    );
+    expect(sanitizeWindowName("natural", "Fix the OAuth callback now please", 40, "/p")).toBe(
+      "Fix the OAuth callback",
+    );
+    expect(sanitizeWindowName("natural", "Single", 40, "/p")).toBeUndefined();
+  });
+
+  it("slug: lowercases, hyphenates, truncates to 30", () => {
+    expect(sanitizeWindowName("slug", "Fix OAuth issue", 30, "/p")).toBe("fix-oauth-issue");
+    const long = sanitizeWindowName("slug", "word ".repeat(20), 30, "/p");
+    expect(long!.length).toBeLessThanOrEqual(30);
+  });
+
+  it("topic-project: composes topic｜project within 24 chars", () => {
+    expect(sanitizeWindowName("topic-project", "Fix auth", 24, "/p/pi-bakery")).toBe(
+      "Fix auth｜pi-bakery",
+    );
+  });
+});
+
+describe("sanitizeWindowName explicit isExplicit=true hard cut (1b for topic-project)", () => {
+  it("natural explicit hard cuts mid-word vs default whole-word drop", () => {
+    // default (isExplicit false / omitted) drops whole words to fit
+    expect(sanitizeWindowName("natural", "Fix the OAuth callback", 10, "/p")).toBe("Fix the");
+    expect(
+      sanitizeWindowName("natural", "Fix the OAuth callback", 10, "/p", { isExplicit: false }),
+    ).toBe("Fix the");
+    // explicit hard cuts at code-point boundary (may cut mid-word)
+    expect(
+      sanitizeWindowName("natural", "Fix the OAuth callback", 10, "/p", { isExplicit: true }),
+    ).toBe("Fix the OA");
+    // 4-arg compat preserves default smart behavior
+    expect(sanitizeWindowName("natural", "Fix the OAuth callback now please", 10, "/p")).toBe(
+      "Fix the",
+    );
+  });
+
+  it("topic-project explicit suffix-preserving hard cut (1b)", () => {
+    // W=12, project=pi-bakery (suffix len 10) => topicBudget 2 => "Fi｜pi-bakery"
+    expect(
+      sanitizeWindowName("topic-project", "Fix auth retry loop", 12, "/p/pi-bakery", {
+        isExplicit: true,
+      }),
+    ).toBe("Fi｜pi-bakery");
+    // pure truncate would be "Fix auth ret" — ensure suffix preserved
+    expect(
+      sanitizeWindowName("topic-project", "Fix auth retry loop", 12, "/p/pi-bakery", {
+        isExplicit: true,
+      }),
+    ).not.toBe("Fix auth ret");
+  });
+
+  it("topic-project explicit project alone exceeds W -> tailToMax", () => {
+    expect(
+      sanitizeWindowName("topic-project", "anything", 6, "/p/pi-bakery", { isExplicit: true }),
+    ).toBe("bakery");
+    expect(sanitizeWindowName("topic-project", "anything", 6, "/p/pi-bakery")).toBe("bakery");
+  });
+
+  it("topic-project explicit empty topic returns project", () => {
+    expect(sanitizeWindowName("topic-project", "", 24, "/p/pi-bakery", { isExplicit: true })).toBe(
+      "pi-bakery",
+    );
+    expect(
+      sanitizeWindowName("topic-project", '""', 24, "/p/pi-bakery", { isExplicit: true }),
+    ).toBe("pi-bakery");
+  });
+
+  it("slug explicit still hard cuts (no behavior change)", () => {
+    expect(sanitizeWindowName("slug", "Fix OAuth issue", 10, "/p", { isExplicit: true })).toBe(
+      "fix-oauth",
+    );
+    expect(sanitizeWindowName("slug", "Fix OAuth issue", 10, "/p")).toBe("fix-oauth");
+  });
+});
+
+describe("sanitizeSessionName", () => {
+  it("slug: slugifies to at most 60 chars", () => {
+    expect(sanitizeSessionName("slug", "Fix OAuth issue", 60)).toBe("fix-oauth-issue");
+  });
+
+  it("natural: returns a plain valid line", () => {
+    expect(sanitizeSessionName("natural", "Correct the auth retry loop", 96)).toBe(
+      "Correct the auth retry loop",
+    );
+  });
+
+  it("natural: rejects bare ISO timestamps (temporary-title flow owns them)", () => {
+    expect(sanitizeSessionName("natural", "2026-01-05T09:30:00.000Z", 96)).toBeUndefined();
+  });
+
+  it("topic-project: cleans to 96 chars", () => {
+    expect(sanitizeSessionName("topic-project", "A descriptive session name", 96)).toBe(
+      "A descriptive session name",
+    );
+  });
+});
+
+describe("generateNames", () => {
+  it("returns missing_prompt without a seed", async () => {
+    const result = await generateNames(
+      mkCtx(),
+      mkConfig(),
+      mkContext({ firstUserMessage: "", recentUserMessages: [] }),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    expect(result).toEqual({ ok: false, reason: "missing_prompt" });
+  });
+
+  it("returns missing_model when no model resolves", async () => {
+    const ctx = mkCtx({ model: undefined, modelRegistry: { find: vi.fn(() => undefined) } as any });
+    const result = await generateNames(
+      ctx,
+      mkConfig({ namingModel: "anthropic/claude-test" }),
+      mkContext(),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    expect(result).toEqual({ ok: false, reason: "missing_model" });
+  });
+
+  it("resolves the namingModel override via modelRegistry.find", async () => {
+    const found = { provider: "openai", id: "gpt-test" };
+    const complete = mkComplete();
+    const ctx = mkCtx({ modelRegistry: { find: vi.fn(() => found), complete } as any });
+    const result = await generateNames(
+      ctx,
+      mkConfig({ namingModel: "openai/gpt-test", namingStyle: "slug" }),
+      mkContext(),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    expect(ctx.modelRegistry.find).toHaveBeenCalledWith("openai", "gpt-test");
+    expect(result.ok).toBe(true);
+  });
+
+  it("returns ok with parsed names on a valid response", async () => {
+    const result = await generateNames(
+      mkCtx(),
+      mkConfig({ namingStyle: "slug" }),
+      mkContext(),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.names.windowName).toBe("oauth-refresh");
+      expect(result.names.sessionName).toBe("fix-the-oauth-callback-retry");
+    }
+  });
+
+  it("derives the window from a usable session when the window is degenerate", async () => {
+    // A single-word WINDOW is below the natural floor, but the SESSION is
+    // usable — salvage it instead of burning retries and losing the name.
+    const complete = mkComplete(() => mkResponse("WINDOW: W1\nSESSION: Name 1"));
+    const result = await generateNames(mkCtx({}, complete), mkConfig(), mkContext(), [], "/p", {
+      exec: vi.fn(),
+    } as any);
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.names.sessionName).toBe("Name 1");
+      expect(result.names.windowName).toBe("Name 1");
+    }
+  });
+
+  it("uses the locale system prompt and the naming context template", async () => {
+    const complete = mkComplete();
+    await generateNames(
+      mkCtx({}, complete),
+      mkConfig({ namingStyle: "slug" }),
+      mkContext({ firstUserMessage: "Fix OAuth" }),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    const [model, callCtx, options] = complete.mock.calls[0];
+    // The slug system prompt is filled with the effective budgets (defaults here)
+    // and prefixed with the localized language directive.
+    expect((callCtx as any).systemPrompt).toBe(
+      `${EN.languageDirective.replaceAll("{language}", "en")}\n\n` +
+        EN.slugSystemPrompt
+          .replaceAll("{windowMaxChars}", "30")
+          .replaceAll("{sessionMaxChars}", "200"),
+    );
+    const text = (callCtx as any).messages[0].content[0].text;
+    expect(text).toContain("cwd: p");
+    expect(text).toContain("First user message:\nFix OAuth");
+    expect(text).toContain("Recent user messages:");
+    expect(text).toContain(EN.responseFormat);
+    expect((options as any).maxTokens).toBe(resolveMaxTokens(mkConfig()));
+    expect((options as any).maxTokens).toBe(2048);
+    expect((options as any).cacheRetention).toBe("none");
+    expect((options as any).timeoutMs).toBe(30_000);
+    expect((options as any).reasoning).toBeUndefined();
+    expect("reasoning" in (options as any)).toBe(false);
+  });
+
+  it("prepends the dedup wrapper when existing titles exist", async () => {
+    const complete = mkComplete();
+    await generateNames(mkCtx({}, complete), mkConfig(), mkContext(), ["Old title"], "/p", {
+      exec: vi.fn(),
+    } as any);
+    const text = (complete.mock.calls[0][1] as any).messages[0].content[0].text;
+    expect(text).toContain(EN.dedupIntro);
+    expect(text).toContain("- Old title");
+  });
+
+  it("retries invalid output up to RETRIES, then falls back to the last message", async () => {
+    const complete = vi.fn(async () => mkResponse("WINDOW: Only one line"));
+    const result = await generateNames(
+      mkCtx({}, complete),
+      mkConfig({ namingStyle: "slug" }),
+      mkContext({ recentUserMessages: ["Fix the OAuth callback"] }),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    expect(complete).toHaveBeenCalledTimes(RETRIES);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.names.sessionName).toBe("fix-the-oauth-callback");
+    }
+  });
+
+  it("stops retrying past the attempt budget and falls back", async () => {
+    // A hung model must not cost RETRIES x the per-call timeout: once the
+    // budget elapses, the loop breaks to the last-message fallback.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+      const complete = vi.fn(async () => {
+        vi.setSystemTime(new Date(Date.now() + 60_000));
+        return mkResponse("WINDOW: Only one line");
+      });
+      const result = await generateNames(mkCtx({}, complete), mkConfig(), mkContext(), [], "/p", {
+        exec: vi.fn(),
+      } as any);
+      expect(complete).toHaveBeenCalledTimes(1);
+      expect(result.ok).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("falls back to the last message when stopReason is not stop", async () => {
+    const complete = vi.fn(async () => mkResponse("", "length"));
+    const result = await generateNames(
+      mkCtx({}, complete),
+      mkConfig({ namingStyle: "slug" }),
+      mkContext({ recentUserMessages: ["Fix the auth retry loop now"] }),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.names.windowName).toBe("fix-the-auth-retry-loop-now");
+    }
+  });
+
+  it("classifies ModelsError as missing_auth", async () => {
+    const complete = vi.fn(async () => {
+      throw new ModelsError("auth", "no api key");
+    });
+    const result = await generateNames(mkCtx({}, complete), mkConfig(), mkContext(), [], "/p", {
+      exec: vi.fn(),
+    } as any);
+    expect(result).toEqual({ ok: false, reason: "missing_auth" });
+  });
+
+  it("classifies other errors as request_failed", async () => {
+    const complete = vi.fn(async () => {
+      throw new Error("network down");
+    });
+    const result = await generateNames(mkCtx({}, complete), mkConfig(), mkContext(), [], "/p", {
+      exec: vi.fn(),
+    } as any);
+    expect(result).toEqual({ ok: false, reason: "request_failed" });
+  });
+
+  it("classifies a thrown AbortError as aborted (silent stale exit)", async () => {
+    const complete = vi.fn(async () => {
+      throw new DOMException("fetch aborted", "AbortError");
+    });
+    const result = await generateNames(mkCtx({}, complete), mkConfig(), mkContext(), [], "/p", {
+      exec: vi.fn(),
+    } as any);
+    expect(result).toEqual({ ok: false, reason: "aborted" });
+    expect(complete).toHaveBeenCalledTimes(1); // never retried
+  });
+
+  it("classifies stopReason aborted as aborted without retry or fallback", async () => {
+    const complete = vi.fn(async () => mkResponse("", "aborted"));
+    const result = await generateNames(mkCtx({}, complete), mkConfig(), mkContext(), [], "/p", {
+      exec: vi.fn(),
+    } as any);
+    expect(result).toEqual({ ok: false, reason: "aborted" });
+    expect(complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("classifies a generic throw under a pre-aborted signal as aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const complete = vi.fn(async () => {
+      throw new Error("socket hang up");
+    });
+    const result = await generateNames(
+      mkCtx({ signal: controller.signal }, complete),
+      mkConfig(),
+      mkContext(),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    expect(result).toEqual({ ok: false, reason: "aborted" });
+  });
+
+  it("returns invalid_output when the model produces nothing usable", async () => {
+    const complete = vi.fn(async () => mkResponse("WINDOW: single\nSESSION: word"));
+    const result = await generateNames(
+      mkCtx({}, complete),
+      mkConfig(),
+      mkContext({ firstUserMessage: "one", recentUserMessages: [] }),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    expect(result).toEqual({ ok: false, reason: "invalid_output" });
+  });
+
+  it("passes the session abort signal and per-call timeout through", async () => {
+    const signal = new AbortController().signal;
+    const complete = mkComplete();
+    await generateNames(
+      mkCtx({ signal }, complete),
+      mkConfig(),
+      mkContext(),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+      { timeoutMs: 5000 },
+    );
+    const options = complete.mock.calls[0][2] as any;
+    expect(options.signal).toBe(signal);
+    expect(options.timeoutMs).toBe(5000);
+  });
+});
+
+describe("budget pass-through ({windowMaxChars}/{sessionMaxChars})", () => {
+  it("fills the slug system prompt with the actual window/session budgets", async () => {
+    const complete = mkComplete();
+    await generateNames(
+      mkCtx({}, complete),
+      mkConfig({ namingStyle: "slug", windowNameMaxLength: 24, sessionNameMaxLength: 40 }),
+      mkContext(),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    const systemPrompt = (complete.mock.calls[0][1] as any).systemPrompt;
+    expect(systemPrompt).toContain("under 24 characters");
+    expect(systemPrompt).toContain("under 40 characters");
+    expect(systemPrompt).not.toContain("{windowMaxChars}");
+    expect(systemPrompt).not.toContain("{sessionMaxChars}");
+  });
+
+  it("fills naturalRules with the actual budgets in the user prompt (natural style)", async () => {
+    const complete = mkComplete();
+    await generateNames(
+      mkCtx({}, complete),
+      mkConfig({ namingStyle: "natural", windowNameMaxLength: 20, sessionNameMaxLength: 80 }),
+      mkContext(),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    const text = (complete.mock.calls[0][1] as any).messages[0].content[0].text;
+    expect(text).toContain("up to 20 characters");
+    expect(text).toContain("up to 80 characters");
+    expect(text).not.toContain("{windowMaxChars}");
+    expect(text).not.toContain("{sessionMaxChars}");
+  });
+
+  it("fills the topic-project system prompt and template with the session budget", async () => {
+    const complete = mkComplete();
+    await generateNames(
+      mkCtx({}, complete),
+      mkConfig({ namingStyle: "topic-project", sessionNameMaxLength: 96 }),
+      mkContext(),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    const { systemPrompt, messages } = complete.mock.calls[0][1] as any;
+    expect(systemPrompt).toContain("under 96 characters");
+    const text = messages[0].content[0].text;
+    expect(text).toContain("SESSION maximum characters: 96");
+    expect(text).not.toContain("under 96");
+  });
+
+  it("includes the full conversation in the topic-project prompt at full-conversation depth", async () => {
+    const complete = mkComplete();
+    await generateNames(
+      mkCtx({}, complete),
+      mkConfig({ namingStyle: "topic-project" }),
+      mkContext({
+        firstUserMessage: "Fix auth",
+        fullText: "User: Fix auth\nAssistant: investigating the retry loop",
+      }),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    const text = (complete.mock.calls[0][1] as any).messages[0].content[0].text;
+    expect(text).toContain("Conversation:");
+    expect(text).toContain("User: Fix auth");
+    expect(text).toContain("Assistant: investigating the retry loop");
+  });
+
+  it("omits the redundant first/recent blocks at full-conversation depth", async () => {
+    const complete = mkComplete();
+    await generateNames(
+      mkCtx({}, complete),
+      mkConfig({ namingStyle: "natural" }),
+      mkContext({
+        firstUserMessage: "Fix auth",
+        recentUserMessages: ["bonus follow-up"],
+        fullText: "User: Fix auth\nAssistant: ok",
+      }),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    const text = (complete.mock.calls[0][1] as any).messages[0].content[0].text;
+    expect(text).toContain("Conversation:");
+    // the full transcript already carries the first/recent content — no duplication
+    expect(text).not.toContain("Recent user messages:");
+    expect(text).not.toContain("First user message:");
+    expect(text).not.toContain("1. bonus follow-up");
+  });
+});
+
+describe("topic-project prompt explicit window budgeting", () => {
+  it("includes WINDOW maximum and topicBudget for explicit W=12", async () => {
+    const complete = mkComplete();
+    await generateNames(
+      mkCtx({}, complete),
+      mkConfig({
+        namingStyle: "topic-project",
+        windowNameMaxLength: 12,
+        sessionNameMaxLength: 200,
+      }),
+      mkContext({ firstUserMessage: "Fix auth" }),
+      [],
+      "/tmp/pi-bakery",
+      { exec: vi.fn() } as any,
+    );
+    const text = (complete.mock.calls[0][1] as any).messages[0].content[0].text;
+    expect(text).toContain("WINDOW maximum characters: 12");
+    expect(text).toContain("keep topic <= 2 chars");
+    expect(text).toContain("SESSION maximum characters: 200");
+    expect(text).toContain("pi-bakery");
+  });
+
+  it("shows W=30 when windowNameMaxLength undefined", async () => {
+    const complete = mkComplete();
+    await generateNames(
+      mkCtx({}, complete),
+      mkConfig({
+        namingStyle: "topic-project",
+        windowNameMaxLength: undefined,
+        sessionNameMaxLength: 200,
+      }),
+      mkContext({ firstUserMessage: "Fix auth" }),
+      [],
+      "/p/pi-bakery",
+      { exec: vi.fn() } as any,
+    );
+    const text = (complete.mock.calls[0][1] as any).messages[0].content[0].text;
+    expect(text).toContain("WINDOW maximum characters: 30");
+    expect(text).toContain("SESSION maximum characters: 200");
+  });
+});
+
+describe("splitIntoProviderAndModelId", () => {
+  it("parses provider/modelId with slash", () => {
+    expect(splitIntoProviderAndModelId("anthropic/claude-sonnet-4")).toEqual({
+      provider: "anthropic",
+      modelId: "claude-sonnet-4",
+    });
+    expect(splitIntoProviderAndModelId("openrouter/nvidia/nemotron:free")).toEqual({
+      provider: "openrouter",
+      modelId: "nvidia/nemotron:free",
+    });
+  });
+
+  it("rejects colon form and missing/invalid separators", () => {
+    expect(splitIntoProviderAndModelId("anthropic:claude-sonnet-4")).toBeUndefined();
+    expect(splitIntoProviderAndModelId("claude-sonnet-4")).toBeUndefined();
+    expect(splitIntoProviderAndModelId("")).toBeUndefined();
+    expect(splitIntoProviderAndModelId("/leading-slash")).toBeUndefined();
+    expect(splitIntoProviderAndModelId("/")).toBeUndefined();
+  });
+});
+
+describe("resolveModel", () => {
+  it("uses namingModel override when registry finds it", () => {
+    const found = { provider: "openai", id: "gpt-test" };
+    const registry = { find: vi.fn(() => found) } as any;
+    const current = { provider: "anthropic", id: "claude-test" } as any;
+    expect(resolveModel(registry, current, mkConfig({ namingModel: "openai/gpt-test" }))).toBe(
+      found,
+    );
+    expect(registry.find).toHaveBeenCalledWith("openai", "gpt-test");
+  });
+
+  it("falls back to currentModel when override not found", () => {
+    const registry = { find: vi.fn(() => undefined) } as any;
+    const current = { provider: "anthropic", id: "claude-test" } as any;
+    expect(resolveModel(registry, current, mkConfig({ namingModel: "openai/missing" }))).toBe(
+      current,
+    );
+  });
+
+  it("falls back to currentModel when namingModel invalid (no slash)", () => {
+    const registry = { find: vi.fn(() => undefined) } as any;
+    const current = { provider: "anthropic", id: "claude-test" } as any;
+    expect(resolveModel(registry, current, mkConfig({ namingModel: "anthropic:claude" }))).toBe(
+      current,
+    );
+    expect(registry.find).not.toHaveBeenCalled();
+  });
+
+  it("falls back to currentModel when namingModel empty", () => {
+    const registry = { find: vi.fn(() => undefined) } as any;
+    const current = { provider: "anthropic", id: "claude-test" } as any;
+    expect(resolveModel(registry, current, mkConfig({ namingModel: "" }))).toBe(current);
+    expect(registry.find).not.toHaveBeenCalled();
+  });
+
+  it("returns undefined when both override and current are missing", () => {
+    const registry = { find: vi.fn(() => undefined) } as any;
+    expect(resolveModel(registry, undefined, mkConfig({ namingModel: "" }))).toBeUndefined();
+    expect(
+      resolveModel(registry, undefined, mkConfig({ namingModel: "openai/gpt-test" })),
+    ).toBeUndefined();
+  });
+});
+
+describe("generateNames does not send reasoning", () => {
+  it("never sends reasoning via ModelRegistry.complete", async () => {
+    const complete = mkComplete();
+    await generateNames(mkCtx({}, complete), mkConfig(), mkContext(), [], "/p", {
+      exec: vi.fn(),
+    } as any);
+    const options = complete.mock.calls[0][2] as any;
+    expect(options.reasoning).toBeUndefined();
+    expect("reasoning" in options).toBe(false);
+  });
+});
+
+describe("language directive ({language} → natural/slug system prompt)", () => {
+  it("injects the localized directive into the natural system prompt and user turn", async () => {
+    const complete = mkComplete();
+    await generateNames(
+      mkCtx({}, complete),
+      mkConfig({ namingStyle: "natural", language: "vi" }),
+      mkContext(),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    const { systemPrompt, messages } = complete.mock.calls[0][1] as any;
+    expect(systemPrompt).toContain("tiếng Việt (vi)");
+    expect(systemPrompt).not.toContain("{language}");
+    // also reinforced at the top of the user turn (weak models attend here)
+    expect(messages[0].content[0].text.startsWith("Quan trọng: hãy tạo tên bằng tiếng Việt")).toBe(
+      true,
+    );
+  });
+
+  it("injects the localized directive into the slug system prompt", async () => {
+    const complete = mkComplete();
+    await generateNames(
+      mkCtx({}, complete),
+      mkConfig({ namingStyle: "slug", language: "de" }),
+      mkContext(),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    const systemPrompt = (complete.mock.calls[0][1] as any).systemPrompt;
+    expect(systemPrompt).toContain("Erstellen Sie die Namen auf Deutsch (de).");
+  });
+
+  it("does not double-inject for topic-project (template already carries Language:)", async () => {
+    const complete = mkComplete();
+    await generateNames(
+      mkCtx({}, complete),
+      mkConfig({ namingStyle: "topic-project", language: "vi" }),
+      mkContext(),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    const { systemPrompt, messages } = complete.mock.calls[0][1] as any;
+    expect(systemPrompt).not.toContain("Tạo tên bằng tiếng Việt");
+    expect(messages[0].content[0].text).toContain("Ngôn ngữ: vi");
+  });
+});
+
+describe("resolveMaxTokens", () => {
+  // Fixed 2048 — generous for visible output + thinking headroom (see src/naming.ts).
+  // No longer scales with W/S, so any config returns the same constant.
+  it("always returns 2048 regardless of window/session budgets", () => {
+    expect(resolveMaxTokens(mkConfig())).toBe(2048);
+    expect(resolveMaxTokens(mkConfig({ windowNameMaxLength: 30, sessionNameMaxLength: 200 }))).toBe(
+      2048,
+    );
+    expect(resolveMaxTokens(mkConfig({ windowNameMaxLength: 10, sessionNameMaxLength: 50 }))).toBe(
+      2048,
+    );
+    expect(
+      resolveMaxTokens(mkConfig({ windowNameMaxLength: 100, sessionNameMaxLength: 500 })),
+    ).toBe(2048);
+    expect(
+      resolveMaxTokens(mkConfig({ windowNameMaxLength: 500, sessionNameMaxLength: 2000 })),
+    ).toBe(2048);
+    expect(resolveMaxTokens(mkConfig({ windowNameMaxLength: 1, sessionNameMaxLength: 1 }))).toBe(
+      2048,
+    );
+  });
+});
+
+describe("generateNames maxTokens plumbing", () => {
+  // Fixed 2048 — always, regardless of W/S. See resolveMaxTokens comment.
+  it("sends 2048 via ModelRegistry.complete", async () => {
+    const complete = mkComplete();
+    await generateNames(mkCtx({}, complete), mkConfig(), mkContext(), [], "/p", {
+      exec: vi.fn(),
+    } as any);
+    const opts = complete.mock.calls[0][2] as any;
+    expect(opts.maxTokens).toBe(2048);
+    expect(opts.maxTokens).toBe(resolveMaxTokens(mkConfig()));
+    expect(opts.maxTokens).not.toBe(120);
+  });
+
+  it("sends 2048 even for relaxed budgets via ModelRegistry.complete", async () => {
+    const complete = mkComplete();
+    await generateNames(
+      mkCtx({}, complete),
+      mkConfig({ windowNameMaxLength: 100, sessionNameMaxLength: 500 }),
+      mkContext(),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    expect((complete.mock.calls[0][2] as any).maxTokens).toBe(2048);
+    expect((complete.mock.calls[0][2] as any).maxTokens).toBe(
+      resolveMaxTokens(mkConfig({ windowNameMaxLength: 100, sessionNameMaxLength: 500 })),
+    );
+  });
+});
