@@ -70,7 +70,7 @@ export function validateConfig<T extends TObject>(schema: T, value: unknown): St
   return rpivValidateConfig(schema as TObject, value) as Static<T>;
 }
 
-const USER_CONFIG_PATH = configPath("pi-auto-name"); // ~/.config/pi-auto-name/config.json
+const USER_CONFIG_PATH = configPath("pi-autoname-plugin"); // ~/.config/pi-autoname-plugin/config.json
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -99,7 +99,7 @@ function deepMerge(
  */
 export function loadConfig(cwd: string): Config {
   const userPath = USER_CONFIG_PATH;
-  const projectPath = join(cwd, CONFIG_DIR_NAME, "pi-auto-name.json");
+  const projectPath = join(cwd, CONFIG_DIR_NAME, "pi-autoname-plugin.json");
   const user = loadJsonConfig<Record<string, unknown>>(userPath);
   const project = loadJsonConfig<Record<string, unknown>>(projectPath);
   const merged = deepMerge(user, project);

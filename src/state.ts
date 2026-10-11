@@ -1,7 +1,7 @@
 // state.ts — per-session state + transcript provenance.
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-export const ENTRY_TYPE = "pi-auto-name";
+export const ENTRY_TYPE = "pi-autoname-plugin";
 
 export interface RenameState {
   done: boolean; // initial rename completed or skipped

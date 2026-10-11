@@ -18,7 +18,7 @@ import { createInMemoryModelRegistry, getModelRuntime } from "./model-runtime-he
 import piAutoNameFactory from "../../src/index.js";
 
 function createTempDir(): string {
-  const d = join(tmpdir(), `pi-auto-name-int-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const d = join(tmpdir(), `pi-autoname-plugin-int-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   mkdirSync(d, { recursive: true });
   return d;
 }
@@ -201,7 +201,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
   // which dispatches on `model.api`. Register this core's api streams in the
   // runtime's own pi-ai copy so it resolves them instead of erroring with
   // "No API provider registered". Scoped per harness; released in cleanup().
-  const apiSourceId = `pi-auto-name-int-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const apiSourceId = `pi-autoname-plugin-int-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const compatRegistry = loadRuntimeCompatRegistry();
   function registerFauxApi(): void {
     compatRegistry.registerApiProvider(
@@ -292,7 +292,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     mkdirSync(piDir, { recursive: true });
     const fullDefaults = validateConfig(ConfigSchema, {}) as unknown as Record<string, unknown>;
     writeFileSync(
-      join(piDir, "pi-auto-name.json"),
+      join(piDir, "pi-autoname-plugin.json"),
       JSON.stringify(
         deepMerge(
           deepMerge(fullDefaults, { surfaces: TEST_SURFACE_DEFAULTS }),
@@ -358,7 +358,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
   function writeConfig(patch: Record<string, unknown>) {
     const piDir = join(tempDir, ".pi");
     mkdirSync(piDir, { recursive: true });
-    writeFileSync(join(piDir, "pi-auto-name.json"), JSON.stringify(patch));
+    writeFileSync(join(piDir, "pi-autoname-plugin.json"), JSON.stringify(patch));
   }
 
   return {

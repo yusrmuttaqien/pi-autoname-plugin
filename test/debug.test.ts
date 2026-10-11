@@ -18,8 +18,8 @@ function mkPi() {
 }
 
 describe("debug gate", () => {
-  it("is a no-op when PI_AUTO_NAME_DEBUG is unset", async () => {
-    vi.stubEnv("PI_AUTO_NAME_DEBUG", "");
+  it("is a no-op when PI_AUTONAME_PLUGIN_DEBUG is unset", async () => {
+    vi.stubEnv("PI_AUTONAME_PLUGIN_DEBUG", "");
     vi.resetModules();
     const { debug, debugEnabled, initDebug } = await import("../src/debug.js");
     const { pi, appendEntry } = mkPi();
@@ -29,8 +29,8 @@ describe("debug gate", () => {
     expect(appendEntry).not.toHaveBeenCalled();
   });
 
-  it("appends a structured custom entry when PI_AUTO_NAME_DEBUG=1", async () => {
-    vi.stubEnv("PI_AUTO_NAME_DEBUG", "1");
+  it("appends a structured custom entry when PI_AUTONAME_PLUGIN_DEBUG=1", async () => {
+    vi.stubEnv("PI_AUTONAME_PLUGIN_DEBUG", "1");
     vi.resetModules();
     const { debug, debugEnabled, DEBUG_ENTRY_TYPE, initDebug } = await import("../src/debug.js");
     const { pi, appendEntry } = mkPi();
@@ -47,7 +47,7 @@ describe("debug gate", () => {
   });
 
   it("omits data when only a message is passed", async () => {
-    vi.stubEnv("PI_AUTO_NAME_DEBUG", "1");
+    vi.stubEnv("PI_AUTONAME_PLUGIN_DEBUG", "1");
     vi.resetModules();
     const { debug, initDebug } = await import("../src/debug.js");
     const { pi, appendEntry } = mkPi();
@@ -60,14 +60,14 @@ describe("debug gate", () => {
   });
 
   it("no-ops before initDebug even when the env gate is on", async () => {
-    vi.stubEnv("PI_AUTO_NAME_DEBUG", "1");
+    vi.stubEnv("PI_AUTONAME_PLUGIN_DEBUG", "1");
     vi.resetModules();
     const { debug } = await import("../src/debug.js");
     expect(() => debug("no pi yet")).not.toThrow();
   });
 
   it("registers the TUI renderer lazily on first append, not at init", async () => {
-    vi.stubEnv("PI_AUTO_NAME_DEBUG", "1");
+    vi.stubEnv("PI_AUTONAME_PLUGIN_DEBUG", "1");
     vi.resetModules();
     const { debug, DEBUG_ENTRY_TYPE, initDebug } = await import("../src/debug.js");
     const { pi, registerEntryRenderer, appendEntry } = mkPi();
@@ -84,7 +84,7 @@ describe("debug gate", () => {
   });
 
   it("uses a debug type distinct from the provenance entry type", async () => {
-    vi.stubEnv("PI_AUTO_NAME_DEBUG", "1");
+    vi.stubEnv("PI_AUTONAME_PLUGIN_DEBUG", "1");
     vi.resetModules();
     const { DEBUG_ENTRY_TYPE } = await import("../src/debug.js");
     expect(DEBUG_ENTRY_TYPE).not.toBe(ENTRY_TYPE);
@@ -93,7 +93,7 @@ describe("debug gate", () => {
 
 describe("renderDebugEntry", () => {
   it("shows the label and a compact inline payload when collapsed", async () => {
-    vi.stubEnv("PI_AUTO_NAME_DEBUG", "1");
+    vi.stubEnv("PI_AUTONAME_PLUGIN_DEBUG", "1");
     vi.resetModules();
     const { renderDebugEntry } = await import("../src/debug.js");
     const theme = {
@@ -110,13 +110,13 @@ describe("renderDebugEntry", () => {
 
     const collapsed = renderDebugEntry(entry, { expanded: false }, theme);
     const rendered = collapsed?.render(80).join("\n") ?? "";
-    expect(rendered).toContain("[pi-auto-name] syncSurfaces");
+    expect(rendered).toContain("[pi-autoname-plugin] syncSurfaces");
     expect(rendered).toContain('"windowName":"w"'); // inline compact JSON
     expect(rendered).not.toContain("at ..."); // no timestamp when collapsed
   });
 
   it("expands to pretty JSON", async () => {
-    vi.stubEnv("PI_AUTO_NAME_DEBUG", "1");
+    vi.stubEnv("PI_AUTONAME_PLUGIN_DEBUG", "1");
     vi.resetModules();
     const { renderDebugEntry } = await import("../src/debug.js");
     const theme = {
@@ -133,12 +133,12 @@ describe("renderDebugEntry", () => {
 
     const expanded = renderDebugEntry(entry, { expanded: true }, theme);
     const rendered = expanded?.render(80).join("\n") ?? "";
-    expect(rendered).toContain("[pi-auto-name] syncSurfaces");
+    expect(rendered).toContain("[pi-autoname-plugin] syncSurfaces");
     expect(rendered).toContain('"windowName"'); // pretty JSON (indented keys)
   });
 
   it("truncates long inline payloads when collapsed", async () => {
-    vi.stubEnv("PI_AUTO_NAME_DEBUG", "1");
+    vi.stubEnv("PI_AUTONAME_PLUGIN_DEBUG", "1");
     vi.resetModules();
     const { renderDebugEntry } = await import("../src/debug.js");
     const theme = {
@@ -152,7 +152,7 @@ describe("renderDebugEntry", () => {
 
     const collapsed = renderDebugEntry(entry, { expanded: false }, theme);
     const rendered = collapsed?.render(200).join("\n") ?? "";
-    expect(rendered).toContain("[pi-auto-name] long");
+    expect(rendered).toContain("[pi-autoname-plugin] long");
     expect(rendered).toContain("…");
     // The full 500-char seed must be truncated, not echoed verbatim.
     expect(rendered).not.toContain("x".repeat(300));
@@ -161,7 +161,7 @@ describe("renderDebugEntry", () => {
 
 describe("debug reload", () => {
   it("re-registers the renderer after initDebug with a new api (reload)", async () => {
-    vi.stubEnv("PI_AUTO_NAME_DEBUG", "1");
+    vi.stubEnv("PI_AUTONAME_PLUGIN_DEBUG", "1");
     vi.resetModules();
     const { debug, DEBUG_ENTRY_TYPE, initDebug } = await import("../src/debug.js");
     const first = mkPi();

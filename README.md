@@ -5,31 +5,31 @@ Automatically names your Pi session and terminal multiplexer surfaces from the c
 Supports renaming a herdr pane or herdr tab containing Pi:
 
 <p align="center">
-  <img src="https://media.githubusercontent.com/media/normful/pi-bakery/main/screenshots/auto-name.png" alt="pi-auto-name herdr screenshot" width="800">
+  <img src="https://media.githubusercontent.com/media/normful/pi-bakery/main/screenshots/auto-name.png" alt="pi-autoname-plugin herdr screenshot" width="800">
 </p>
 
 Also supports renaming a tmux window containing Pi:
 
 <p align="center">
-  <img src="https://media.githubusercontent.com/media/normful/pi-bakery/main/screenshots/pi-auto-name_tmux.png" alt="pi-auto-name tmux screenshot" width="800">
+  <img src="https://media.githubusercontent.com/media/normful/pi-bakery/main/screenshots/pi-autoname-plugin_tmux.png" alt="pi-autoname-plugin tmux screenshot" width="800">
 </p>
 
 And supports renaming a zellij pane or zellij tab containing Pi:
 
 <p align="center">
-  <img src="https://media.githubusercontent.com/media/normful/pi-bakery/main/screenshots/pi-auto-name_zellij.png" alt="pi-auto-name zellij screenshot" width="800">
+  <img src="https://media.githubusercontent.com/media/normful/pi-bakery/main/screenshots/pi-autoname-plugin_zellij.png" alt="pi-autoname-plugin zellij screenshot" width="800">
 </p>
 
 Various languages are supported too, such as Japanese:
 
 <p align="center">
-  <img src="https://media.githubusercontent.com/media/normful/pi-bakery/main/screenshots/pi-auto-rename_japanese.png" alt="pi-auto-name Japanese renaming screenshot" width="800">
+  <img src="https://media.githubusercontent.com/media/normful/pi-bakery/main/screenshots/pi-auto-rename_japanese.png" alt="pi-autoname-plugin Japanese renaming screenshot" width="800">
 </p>
 
 ## Installation
 
 ```bash
-pi install npm:@normful/pi-auto-name
+pi install npm:pi-autoname-plugin
 ```
 
 ## Usage
@@ -53,8 +53,8 @@ Additionally, you can also configure it to continually rename as the conversatio
 
 Save config to either:
 
-- Globally: `~/.config/pi-auto-name/config.json` (respects `XDG_CONFIG_HOME`)
-- Per-project override: `.pi/pi-auto-name.json`
+- Globally: `~/.config/pi-autoname-plugin/config.json` (respects `XDG_CONFIG_HOME`)
+- Per-project override: `.pi/pi-autoname-plugin.json`
 
 Full default configuration:
 
@@ -110,7 +110,7 @@ Every configuration key is optional.
 
 ## Debugging
 
-Set `PI_AUTO_NAME_DEBUG=1` and the extension will both append structured `pi-auto-name:debug` entries to
+Set `PI_AUTONAME_PLUGIN_DEBUG=1` and the extension will both append structured `pi-autoname-plugin:debug` entries to
 the session transcript and render them in the TUI. (The debug entries are not sent to the LLM.)
 
 ## Inspiration

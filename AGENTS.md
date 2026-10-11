@@ -1,6 +1,6 @@
-# Locales — source of truth for pi-auto-name prompt strings
+# Locales — source of truth for pi-autoname-plugin prompt strings
 
-All user-facing / LLM-facing prompt scaffolding for pi-auto-name lives in
+All user-facing / LLM-facing prompt scaffolding for pi-autoname-plugin lives in
 [`src/locales.ts`](./src/locales.ts) as per-locale `LocaleStrings` tables,
 registered in the `LOCALE_STRINGS` map. This file documents the conventions.
 

@@ -1,6 +1,6 @@
-// debug.ts — gated debug trail for pi-auto-name.
+// debug.ts — gated debug trail for pi-autoname-plugin.
 //
-// Off by default; enable with PI_AUTO_NAME_DEBUG=1 (or true/yes). When enabled,
+// Off by default; enable with PI_AUTONAME_PLUGIN_DEBUG=1 (or true/yes). When enabled,
 // each debug() call appends a structured custom entry to the session transcript
 // via pi.appendEntry instead of writing to stderr. The entries are durable
 // (survive restarts), are NOT sent to the LLM, and render in the TUI through
@@ -8,10 +8,10 @@
 import { Box, Text, type Component } from "@earendil-works/pi-tui";
 import type { EntryRenderer, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-const DEBUG = /^(1|true|yes)$/i.test(process.env.PI_AUTO_NAME_DEBUG ?? "");
+const DEBUG = /^(1|true|yes)$/i.test(process.env.PI_AUTONAME_PLUGIN_DEBUG ?? "");
 
-/** Custom entry type for the debug trail. Distinct from the provenance type ("pi-auto-name"). */
-export const DEBUG_ENTRY_TYPE = "pi-auto-name:debug";
+/** Custom entry type for the debug trail. Distinct from the provenance type ("pi-autoname-plugin"). */
+export const DEBUG_ENTRY_TYPE = "pi-autoname-plugin:debug";
 
 /** Shape of a debug entry: label, optional payload, and write timestamp. */
 export interface DebugEntryData {
@@ -50,7 +50,7 @@ export function initDebug(api: ExtensionAPI): void {
 /** Whether debug logging is enabled (for gating extra diagnostic work). */
 export const debugEnabled = DEBUG;
 
-/** Log a debug line (no-op unless PI_AUTO_NAME_DEBUG is set and pi is bound). */
+/** Log a debug line (no-op unless PI_AUTONAME_PLUGIN_DEBUG is set and pi is bound). */
 export function debug(...args: unknown[]): void {
   if (!DEBUG || !pi) return;
   if (!rendererRegistered || registeredPi !== pi) {
@@ -77,7 +77,7 @@ export const renderDebugEntry: EntryRenderer<DebugEntryData> = (
 ): Component => {
   const { msg, data } = entry.data ?? {};
   const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
-  const label = theme.fg("accent", `[pi-auto-name] ${msg ?? ""}`);
+  const label = theme.fg("accent", `[pi-autoname-plugin] ${msg ?? ""}`);
   if (expanded) {
     box.addChild(new Text(label, 0, 0));
     if (data !== undefined) {

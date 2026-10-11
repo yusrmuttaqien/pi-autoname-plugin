@@ -5,7 +5,7 @@ vi.mock("@juicesharp/rpiv-config", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@juicesharp/rpiv-config")>();
   return {
     ...actual,
-    configPath: vi.fn(() => "/fake/home/.config/pi-auto-name/config.json"),
+    configPath: vi.fn(() => "/fake/home/.config/pi-autoname-plugin/config.json"),
     loadJsonConfig: vi.fn(() => ({})),
   };
 });
@@ -99,11 +99,11 @@ describe("loadConfig (nested defaults deep-merged)", () => {
     expect(loadJsonConfig).toHaveBeenCalledTimes(2);
     expect(loadJsonConfig).toHaveBeenNthCalledWith(
       1,
-      "/fake/home/.config/pi-auto-name/config.json",
+      "/fake/home/.config/pi-autoname-plugin/config.json",
     );
     const projectPath = vi.mocked(loadJsonConfig).mock.calls[1][0];
     expect(projectPath).toContain("/some/project");
-    expect(projectPath.endsWith("pi-auto-name.json")).toBe(true);
+    expect(projectPath.endsWith("pi-autoname-plugin.json")).toBe(true);
 
     expect(cfg.namingStyle).toBe("slug"); // from user base
     expect(cfg.language).toBe("de"); // project wins

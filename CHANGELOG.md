@@ -54,7 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- First public release: automatically names the Pi session and the containing tmux window, herdr pane and tab, and zellij pane and tab from the conversation, in your language (26 options) and one of three styles (`natural`, `slug`, `topic-project`), configurable via `~/.config/pi-auto-name/config.json` or a per-project `.pi/pi-auto-name.json` with per-surface toggles, length limits, duplicate-name avoidance, and optional re-renaming every N turns.
+- First public release: automatically names the Pi session and the containing tmux window, herdr pane and tab, and zellij pane and tab from the conversation, in your language (26 options) and one of three styles (`natural`, `slug`, `topic-project`), configurable via `~/.config/pi-autoname-plugin/config.json` or a per-project `.pi/pi-autoname-plugin.json` with per-surface toggles, length limits, duplicate-name avoidance, and optional re-renaming every N turns.
 
 [Unreleased]: https://github.com/normful/pi-bakery/commits/main/packages/pi-auto-name
 [2.0.0]: https://www.npmjs.com/package/@normful/pi-auto-name/v/2.0.0
