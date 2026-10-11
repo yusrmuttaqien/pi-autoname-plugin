@@ -412,6 +412,39 @@ describe("generateNames", () => {
     expect("reasoning" in (options as any)).toBe(false);
   });
 
+  it("appends customInstructions to the system prompt when configured", async () => {
+    const complete = mkComplete();
+    await generateNames(
+      mkCtx({}, complete),
+      mkConfig({ namingStyle: "slug", customInstructions: "Prefer short names." }),
+      mkContext({ firstUserMessage: "Fix OAuth" }),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    const sp = (complete.mock.calls[0][1] as any).systemPrompt as string;
+    expect(sp).toContain("Prefer short names.");
+    // Appended verbatim after the base prompt, not prefixed.
+    expect(sp.endsWith("\n\nPrefer short names.")).toBe(true);
+  });
+
+  it("leaves the system prompt unchanged when customInstructions is empty", async () => {
+    const complete = mkComplete();
+    await generateNames(
+      mkCtx({}, complete),
+      mkConfig({ namingStyle: "slug" }),
+      mkContext({ firstUserMessage: "Fix OAuth" }),
+      [],
+      "/p",
+      { exec: vi.fn() } as any,
+    );
+    const sp = (complete.mock.calls[0][1] as any).systemPrompt as string;
+    expect(sp).toBe(
+      `${EN.languageDirective.replaceAll("{language}", "en")}\n\n` +
+        EN.slugSystemPrompt.replaceAll("{windowMaxChars}", "30").replaceAll("{sessionMaxChars}", "200"),
+    );
+  });
+
   it("prepends the dedup wrapper when existing titles exist", async () => {
     const complete = mkComplete();
     await generateNames(mkCtx({}, complete), mkConfig(), mkContext(), ["Old title"], "/p", {

@@ -44,6 +44,8 @@ export const ConfigSchema = Type.Object({
   ),
   skipSessionNameDedup: Type.Boolean({ default: false }),
   namingModel: Type.String({ default: "" }),
+  // Raw string appended verbatim to the naming LLM's system prompt (empty = off).
+  customInstructions: Type.String({ default: "" }),
   // BCP-47 language tag only ("en", "zh-CN", "pt-BR")
   language: Type.String({ default: "en" }),
   // Per-name limits, override semantics: when set, windowNameMaxLength applies

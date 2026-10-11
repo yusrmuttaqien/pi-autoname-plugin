@@ -170,13 +170,20 @@ function systemPromptFor(style: Config["namingStyle"], locale: LocaleStrings, cf
   // language but never names it, so inject an explicit directive — otherwise
   // English-biased naming models default to English output regardless of the
   // configured `language`.
+  let prompt: string;
   if (style === "natural" || style === "slug") {
     const directive = fill(locale.languageDirective, {
       language: normalizeLanguageTag(cfg.language),
     });
-    return `${directive}\n\n${base}`;
+    prompt = `${directive}\n\n${base}`;
+  } else {
+    prompt = base;
   }
-  return base;
+  // Append user-injected instructions (raw string, verbatim) when configured.
+  if (cfg.customInstructions) {
+    prompt = `${prompt}\n\n${cfg.customInstructions}`;
+  }
+  return prompt;
 }
 
 /** Structural subset of pi.exec used by the anchor lookup. */
