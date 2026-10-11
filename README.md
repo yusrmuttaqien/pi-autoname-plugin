@@ -1,7 +1,4 @@
-# @normful/pi-auto-name
-
-> [!TIP]
-> Documentation in: [简体中文](./README.zh.md) · [繁體中文](./README.zh-hant.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md) · [Português](./README.pt-br.md) · [Español](./README.es.md) · [Deutsch](./README.de.md) · [Français](./README.fr.md) · [Bahasa Indonesia](./README.id.md) · [Tiếng Việt](./README.vi.md) · [Türkçe](./README.tr.md) · [Polski](./README.pl.md) · [Українська](./README.uk.md) · [فارسی](./README.fa.md) · [العربية](./README.ar.md) · [हिन्दी](./README.hi.md) · [Italiano](./README.it.md) · [Nederlands](./README.nl.md) · [ไทย](./README.th.md)
+# pi-autoname-plugin
 
 Automatically names your Pi session and terminal multiplexer surfaces from the conversation.
 
