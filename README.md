@@ -54,7 +54,7 @@ Additionally, you can also configure it to continually rename as the conversatio
 The extension auto-generates its config file with the default values on first
 run, inside its own folder:
 
-- Co-located (auto-generated): `~/.pi/agent/git/github.com/yusrmuttaqien/pi-autoname-plugin/config.json`
+- Co-located (auto-generated): `~/.pi/agent/extensions/pi-autoname-plugin/config.json`
 - Per-project override: `.pi/pi-autoname-plugin.json`
 
 Edit the co-located file to change global settings; the project file overrides

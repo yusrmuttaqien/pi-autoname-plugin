@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { createFauxCore } from "@earendil-works/pi-ai";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
@@ -298,10 +298,11 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       ),
     );
     writeFileSync(join(piDir, "pi-autoname-plugin.json"), projectConfig);
-    // Seed the co-located user-global config (USER_CONFIG_PATH, the extension
-    // root) with the same complete content so ensureDefaultConfig is a no-op
-    // and no real extension-root file leaks keys the test did not set (notably
-    // the no-default length optionals) into the run.
+    // Seed the user-global config (USER_CONFIG_PATH, ~/.pi/agent/extensions/
+    // pi-autoname-plugin/config.json) with the same complete content so
+    // ensureDefaultConfig is a no-op and no real user file leaks keys the test
+    // did not set (notably the no-default length optionals) into the run.
+    mkdirSync(dirname(USER_CONFIG_PATH), { recursive: true });
     writeFileSync(USER_CONFIG_PATH, projectConfig);
   }
 

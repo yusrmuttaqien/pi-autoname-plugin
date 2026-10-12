@@ -1,6 +1,6 @@
 // config.ts — schema, defaults, load/merge.
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { Type, type Static, type TObject } from "typebox";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
@@ -78,13 +78,20 @@ export function validateConfig<T extends TObject>(schema: T, value: unknown): St
 }
 
 /**
- * Co-located config path: <extension-root>/config.json. When installed via
- * `pi install`, the extension lives at ~/.pi/agent/extensions/pi-autoname-plugin/,
- * so this resolves to ~/.pi/agent/extensions/pi-autoname-plugin/config.json.
- * Derived from this file's location (src/config.ts → parent of parent).
+ * User-owned config location: ~/.pi/agent/extensions/pi-autoname-plugin/config.json.
+ * A stable, user-facing path that survives pi updates and re-clones of the git
+ * install — the same convention other extensions use (e.g. pi-extendedread).
+ * Derived from the home directory, not import.meta.url, so it does not move
+ * when the extension is re-installed to a different git-clone directory.
  */
-const EXTENSION_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-export const USER_CONFIG_PATH = join(EXTENSION_ROOT, "config.json");
+export const USER_CONFIG_PATH = join(
+  homedir(),
+  ".pi",
+  "agent",
+  "extensions",
+  "pi-autoname-plugin",
+  "config.json",
+);
 
 /**
  * Auto-generate the co-located config with the full effective defaults when
