@@ -355,7 +355,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
   });
 
   await session.bindExtensions({
-    ...(options.ui ? { uiContext: {} as never } : {}),
+    ...(options.ui ? { uiContext: { setStatus: () => {} } as never } : {}),
     ...(options.reloadable ? { onError: () => {} } : {}),
   });
 

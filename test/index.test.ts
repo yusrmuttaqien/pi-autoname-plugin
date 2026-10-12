@@ -83,6 +83,7 @@ function setup(): Harness {
   const ctx = {
     cwd: "/project",
     hasUI: false,
+    ui: { setStatus: vi.fn() },
     sessionManager: {
       getEntries: () => [],
       getSessionFile: () => "/sessions/current.md",
@@ -533,6 +534,31 @@ describe("session_start", () => {
     h.pi.exec.mockClear();
     await h.handlers.get("session_start")!({ reason: "new" }, h.ctx);
     expect(h.pi.exec).not.toHaveBeenCalled();
+  });
+});
+
+describe("temporary status", () => {
+  it("shows status while renaming and clears it after", async () => {
+    const h = setup();
+    h.ctx.hasUI = true;
+    h.ctx.ui.setStatus.mockClear();
+    // Trigger a rename via input (uses renameOnceDeferred when hasUI=true).
+    h.handlers.get("input")!({ source: "interactive", text: "Fix OAuth" }, h.ctx);
+    // Wait for the deferred rename to finish (status cleared in finally).
+    await vi.waitFor(() => {
+      expect(h.ctx.ui.setStatus).toHaveBeenLastCalledWith("pi-autoname-plugin", undefined);
+    });
+    // Status was set to "Renaming session…" and then cleared (undefined).
+    expect(h.ctx.ui.setStatus).toHaveBeenCalledWith("pi-autoname-plugin", "Renaming session…");
+    expect(h.ctx.ui.setStatus).toHaveBeenLastCalledWith("pi-autoname-plugin", undefined);
+  });
+
+  it("does not touch the status bar when there is no UI", async () => {
+    const h = setup();
+    h.ctx.hasUI = false;
+    h.ctx.ui.setStatus.mockClear();
+    await h.handlers.get("input")!({ source: "interactive", text: "Fix OAuth" }, h.ctx);
+    expect(h.ctx.ui.setStatus).not.toHaveBeenCalled();
   });
 });
 

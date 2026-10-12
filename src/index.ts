@@ -94,6 +94,30 @@ export default function (pi: ExtensionAPI): void {
   }
 
   /**
+   * Temporary status-bar text shown while a rename is in flight (the LLM call
+   * can be slow). Set right after preparation, cleared in the flow's finally.
+   * Only touched when dialog-capable UI is available; a harmless no-op
+   * otherwise (print/json modes have no status bar).
+   */
+  const STATUS_KEY = "pi-autoname-plugin";
+  function showStatus(ctx: ExtensionContext): void {
+    try {
+      if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, "Renaming session…");
+    } catch {
+      // ctx may be stale after session replacement/reload; the status bar
+      // is best-effort.
+    }
+  }
+  function clearStatus(ctx: ExtensionContext): void {
+    try {
+      if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, undefined);
+    } catch {
+      // ctx may be stale after session replacement/reload; the status bar
+      // is best-effort.
+    }
+  }
+
+  /**
    * Guard checks + synchronous preparation, run after config loading confirms
    * the event's generation is still current. Returns undefined when the rename is
    * skipped (disabled, done, inflight/locked, un-replaceable name, or no
@@ -275,11 +299,13 @@ export default function (pi: ExtensionAPI): void {
   async function renameOnce(ctx: ExtensionContext, options?: RenameOptions): Promise<void> {
     const p = prepareRename(ctx, options);
     if (!p) return;
+    showStatus(ctx);
     try {
       await completeRename(p, options);
     } finally {
       p.state.inflight = false;
       p.state.done = true;
+      clearStatus(ctx);
     }
   }
 
@@ -294,6 +320,7 @@ export default function (pi: ExtensionAPI): void {
   function renameOnceDeferred(ctx: ExtensionContext, options?: RenameOptions): void {
     const p = prepareRename(ctx, options);
     if (!p) return;
+    showStatus(ctx);
     void (async () => {
       try {
         await completeRename(p, options);
@@ -302,6 +329,7 @@ export default function (pi: ExtensionAPI): void {
       } finally {
         p.state.inflight = false;
         p.state.done = true;
+        clearStatus(ctx);
       }
     })();
   }
