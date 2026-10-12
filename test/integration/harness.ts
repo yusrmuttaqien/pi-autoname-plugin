@@ -191,7 +191,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
   const xdgDir = join(tempDir, "xdg-config");
   mkdirSync(xdgDir, { recursive: true });
   process.env.XDG_CONFIG_HOME = xdgDir;
-  const { ConfigSchema, validateConfig } = await import("../../src/config.js");
+  const { ConfigSchema, validateConfig, USER_CONFIG_PATH } = await import("../../src/config.js");
 
   const faux = createFauxCore({ provider: "faux", models: [{ id: "faux-1" }] });
   const withAuth = options.withAuth ?? true;
@@ -291,15 +291,18 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     const piDir = join(tempDir, ".pi");
     mkdirSync(piDir, { recursive: true });
     const fullDefaults = validateConfig(ConfigSchema, {}) as unknown as Record<string, unknown>;
-    writeFileSync(
-      join(piDir, "pi-autoname-plugin.json"),
-      JSON.stringify(
-        deepMerge(
-          deepMerge(fullDefaults, { surfaces: TEST_SURFACE_DEFAULTS }),
-          options.config ?? {},
-        ),
+    const projectConfig = JSON.stringify(
+      deepMerge(
+        deepMerge(fullDefaults, { surfaces: TEST_SURFACE_DEFAULTS }),
+        options.config ?? {},
       ),
     );
+    writeFileSync(join(piDir, "pi-autoname-plugin.json"), projectConfig);
+    // Seed the co-located user-global config (USER_CONFIG_PATH, the extension
+    // root) with the same complete content so ensureDefaultConfig is a no-op
+    // and no real extension-root file leaks keys the test did not set (notably
+    // the no-default length optionals) into the run.
+    writeFileSync(USER_CONFIG_PATH, projectConfig);
   }
 
   // Block multiplexer spawns at the extension boundary: the extension under
@@ -378,6 +381,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
       compatRegistry.unregisterApiProviders(apiSourceId);
       restoreSurfaceEnv();
       if (existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
+      if (existsSync(USER_CONFIG_PATH)) rmSync(USER_CONFIG_PATH);
     },
     writeConfig,
     reregisterFauxApi: registerFauxApi,

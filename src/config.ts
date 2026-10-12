@@ -1,13 +1,18 @@
 // config.ts — schema, defaults, load/merge.
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { Type, type Static, type TObject } from "typebox";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import {
-  configPath,
   loadJsonConfig,
   validateConfig as rpivValidateConfig,
 } from "@juicesharp/rpiv-config";
 import { debug } from "./debug.js";
+import {
+  DEFAULT_MAX_WINDOW_NAME_CHARS,
+  DEFAULT_MAX_SESSION_NAME_CHARS,
+} from "./constants.js";
 
 export const ConfigSchema = Type.Object({
   enabled: Type.Boolean({ default: true }),
@@ -72,7 +77,35 @@ export function validateConfig<T extends TObject>(schema: T, value: unknown): St
   return rpivValidateConfig(schema as TObject, value) as Static<T>;
 }
 
-const USER_CONFIG_PATH = configPath("pi-autoname-plugin"); // ~/.config/pi-autoname-plugin/config.json
+/**
+ * Co-located config path: <extension-root>/config.json. When installed via
+ * `pi install`, the extension lives at ~/.pi/agent/extensions/pi-autoname-plugin/,
+ * so this resolves to ~/.pi/agent/extensions/pi-autoname-plugin/config.json.
+ * Derived from this file's location (src/config.ts → parent of parent).
+ */
+const EXTENSION_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+export const USER_CONFIG_PATH = join(EXTENSION_ROOT, "config.json");
+
+/**
+ * Auto-generate the co-located config with the full effective defaults when
+ * it doesn't exist. Best-effort: a write failure (e.g. read-only FS) is
+ * non-fatal — loadConfig falls back to in-memory defaults.
+ */
+export function ensureDefaultConfig(path: string = USER_CONFIG_PATH): void {
+  if (existsSync(path)) return;
+  const base = validateConfig(ConfigSchema, {});
+  const defaults = {
+    ...base,
+    windowNameMaxLength: DEFAULT_MAX_WINDOW_NAME_CHARS,
+    sessionNameMaxLength: DEFAULT_MAX_SESSION_NAME_CHARS,
+  };
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify(defaults, null, 2) + "\n", "utf-8");
+  } catch (err) {
+    debug("ensureDefaultConfig: failed to write defaults", { path, err: String(err) });
+  }
+}
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -100,6 +133,7 @@ function deepMerge(
  * there are no env-var overrides.
  */
 export function loadConfig(cwd: string): Config {
+  ensureDefaultConfig();
   const userPath = USER_CONFIG_PATH;
   const projectPath = join(cwd, CONFIG_DIR_NAME, "pi-autoname-plugin.json");
   const user = loadJsonConfig<Record<string, unknown>>(userPath);

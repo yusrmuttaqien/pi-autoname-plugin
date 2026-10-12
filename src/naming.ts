@@ -12,6 +12,10 @@ import type { Config } from "./config.js";
 import type { NamingContext } from "./context.js";
 import { buildLocale, fill, normalizeLanguageTag, type LocaleStrings } from "./i18n.js";
 import {
+  DEFAULT_MAX_WINDOW_NAME_CHARS,
+  DEFAULT_MAX_SESSION_NAME_CHARS,
+} from "./constants.js";
+import {
   ISO_FALLBACK_RE,
   WINDOW_WORD_MIN,
   buildProjectSuffixTitle,
@@ -67,10 +71,9 @@ export function splitIntoProviderAndModelId(
 export const RETRIES = 3;
 export const UI_RENAME_TIMEOUT_MS = 10_000; // fire-and-forget UI budget (§11)
 
-/** Fixed default window-name limit for any style, when no override is configured. */
-export const DEFAULT_MAX_WINDOW_NAME_CHARS = 30;
-/** Fixed default session-name limit for any style, when no override is configured. */
-export const DEFAULT_MAX_SESSION_NAME_CHARS = 200;
+// Re-exported from constants.ts (single source of truth) so existing
+// importers of naming.ts keep working unchanged.
+export { DEFAULT_MAX_WINDOW_NAME_CHARS, DEFAULT_MAX_SESSION_NAME_CHARS };
 
 /**
  * Effective window-name limit: `cfg.windowNameMaxLength` if set, else

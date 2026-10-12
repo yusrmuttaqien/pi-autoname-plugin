@@ -1,12 +1,32 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ConfigSchema, loadConfig, validateConfig, type Config } from "../src/config.js";
+import { dirname } from "node:path";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  ConfigSchema,
+  loadConfig,
+  validateConfig,
+  ensureDefaultConfig,
+  USER_CONFIG_PATH,
+  type Config,
+} from "../src/config.js";
 
 vi.mock("@juicesharp/rpiv-config", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@juicesharp/rpiv-config")>();
   return {
     ...actual,
-    configPath: vi.fn(() => "/fake/home/.config/pi-autoname-plugin/config.json"),
     loadJsonConfig: vi.fn(() => ({})),
+  };
+});
+
+// ensureDefaultConfig touches node:fs; mock it so loadConfig tests are
+// side-effect free (existsSync → true = "file exists" = no-op write).
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    existsSync: vi.fn(() => true),
+    mkdirSync: vi.fn(),
+    writeFileSync: vi.fn(),
   };
 });
 
@@ -97,10 +117,7 @@ describe("loadConfig (nested defaults deep-merged)", () => {
     const cfg = loadConfig("/some/project");
 
     expect(loadJsonConfig).toHaveBeenCalledTimes(2);
-    expect(loadJsonConfig).toHaveBeenNthCalledWith(
-      1,
-      "/fake/home/.config/pi-autoname-plugin/config.json",
-    );
+    expect(loadJsonConfig).toHaveBeenNthCalledWith(1, USER_CONFIG_PATH);
     const projectPath = vi.mocked(loadJsonConfig).mock.calls[1][0];
     expect(projectPath).toContain("/some/project");
     expect(projectPath.endsWith("pi-autoname-plugin.json")).toBe(true);
@@ -117,5 +134,42 @@ describe("loadConfig (nested defaults deep-merged)", () => {
     expect(cfg.surfaces.renameTmuxWindow).toBe(false); // user
     expect(cfg.surfaces.renameZellijTab).toBe(false); // project
     expect(cfg.surfaces.renamePiSession).toBe(true); // default elsewhere
+  });
+});
+
+describe("ensureDefaultConfig (auto-generate co-located config)", () => {
+  const tmpPath = "/tmp/autoname-plugin-test/config.json";
+
+  beforeEach(() => {
+    vi.mocked(existsSync).mockReset().mockReturnValue(true);
+    vi.mocked(mkdirSync).mockReset();
+    vi.mocked(writeFileSync).mockReset();
+  });
+
+  it("writes the full effective defaults when the file is missing", () => {
+    vi.mocked(existsSync).mockReturnValueOnce(false);
+    ensureDefaultConfig(tmpPath);
+    expect(mkdirSync).toHaveBeenCalledWith(dirname(tmpPath), { recursive: true });
+    expect(writeFileSync).toHaveBeenCalledTimes(1);
+    const [path, content] = vi.mocked(writeFileSync).mock.calls[0];
+    expect(path).toBe(tmpPath);
+    const parsed = JSON.parse(content as string);
+    expect(parsed.enabled).toBe(true);
+    expect(parsed.windowNameMaxLength).toBe(30);
+    expect(parsed.sessionNameMaxLength).toBe(200);
+    expect(parsed.surfaces).toEqual({
+      renamePiSession: true,
+      renameHerdrPane: true,
+      renameHerdrTab: true,
+      renameTmuxWindow: true,
+      renameZellijPane: true,
+      renameZellijTab: true,
+    });
+  });
+
+  it("does not overwrite an existing config file", () => {
+    vi.mocked(existsSync).mockReturnValueOnce(true);
+    ensureDefaultConfig(tmpPath);
+    expect(writeFileSync).not.toHaveBeenCalled();
   });
 });

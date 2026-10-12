@@ -51,10 +51,14 @@ Additionally, you can also configure it to continually rename as the conversatio
 
 ## Configuration
 
-Save config to either:
+The extension auto-generates its config file with the default values on first
+run, inside its own folder:
 
-- Globally: `~/.config/pi-autoname-plugin/config.json` (respects `XDG_CONFIG_HOME`)
+- Co-located (auto-generated): `~/.pi/agent/extensions/pi-autoname-plugin/config.json`
 - Per-project override: `.pi/pi-autoname-plugin.json`
+
+Edit the co-located file to change global settings; the project file overrides
+any field you set in it.
 
 Full default configuration:
 
