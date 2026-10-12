@@ -134,3 +134,7 @@ This extension is inspired by several other similar extensions:
 - <https://github.com/byteowlz/pi-agent-extensions/tree/main/pi-auto-rename>
 - <https://github.com/mkioutcc/pi-title-renamer>
 - <https://github.com/default-anton/pi-tmux-window-name>
+
+## Credits
+
+This project is a standalone fork of [`pi-auto-name`](https://github.com/normful/pi-bakery/tree/main/packages/pi-auto-name) from the [`normful/pi-bakery`](https://github.com/normful/pi-bakery) monorepo. Thanks to the original author for the work that made this possible.
