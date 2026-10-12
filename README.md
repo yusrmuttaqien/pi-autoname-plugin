@@ -5,31 +5,31 @@ Automatically names your Pi session and terminal multiplexer surfaces from the c
 Supports renaming a herdr pane or herdr tab containing Pi:
 
 <p align="center">
-  <img src="https://media.githubusercontent.com/media/normful/pi-bakery/main/screenshots/auto-name.png" alt="pi-autoname-plugin herdr screenshot" width="800">
+  <img src="docs/herdr.png" alt="pi-autoname-plugin herdr screenshot" width="800">
 </p>
 
 Also supports renaming a tmux window containing Pi:
 
 <p align="center">
-  <img src="https://media.githubusercontent.com/media/normful/pi-bakery/main/screenshots/pi-autoname-plugin_tmux.png" alt="pi-autoname-plugin tmux screenshot" width="800">
+  <img src="docs/tmux.png" alt="pi-autoname-plugin tmux screenshot" width="800">
 </p>
 
 And supports renaming a zellij pane or zellij tab containing Pi:
 
 <p align="center">
-  <img src="https://media.githubusercontent.com/media/normful/pi-bakery/main/screenshots/pi-autoname-plugin_zellij.png" alt="pi-autoname-plugin zellij screenshot" width="800">
+  <img src="docs/zellij.png" alt="pi-autoname-plugin zellij screenshot" width="800">
 </p>
 
 Various languages are supported too, such as Japanese:
 
 <p align="center">
-  <img src="https://media.githubusercontent.com/media/normful/pi-bakery/main/screenshots/pi-auto-rename_japanese.png" alt="pi-autoname-plugin Japanese renaming screenshot" width="800">
+  <img src="docs/japanese.png" alt="pi-autoname-plugin Japanese renaming screenshot" width="800">
 </p>
 
 ## Installation
 
 ```bash
-pi install npm:pi-autoname-plugin
+pi install git:github.com/yusrmuttaqien/pi-autoname-plugin
 ```
 
 ## Usage
