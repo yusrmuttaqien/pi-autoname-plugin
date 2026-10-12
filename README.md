@@ -38,6 +38,11 @@ The extension is fully automatic; there is nothing to run.
 
 Configure it once, and that's it. Set it and forget it.
 
+You can also rename the session on demand at any time with the `/rename`
+slash command — it forces a rename now, even after the initial rename has
+already landed (and it works while auto-naming is disabled by setting both
+`contextStart` and `contextEnd` to `0`).
+
 ## How It Works
 
 After the first user input (or the first `agent_settled` event — see config
@@ -67,7 +72,8 @@ Full default configuration:
   "enabled": true,
   "initialRenameTrigger": "first-input",
   "language": "en",
-  "namingContextDepth": "recent-user-messages",
+  "contextStart": 1,
+  "contextEnd": 3,
   "namingModel": "",
   "customInstructions": "",
   "namingStyle": "natural",
@@ -97,7 +103,8 @@ Every configuration key is optional.
 | `enabled`                   | `boolean` | `true`                   | `false` disables this extension entirely.                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `initialRenameTrigger`      | `string`  | `"first-input"`          | When the first rename fires:<br><ul><li><code>"first-input"</code> — after you send first prompt</li><li><code>"first-agent-settled"</code> — after the first LLM run finishes (after the first `agent_settled` event).</li></ul>                                                                                                                                                                                                                         |
 | `language`                  | `string`  | `"en"`                   | One of: `"en"`, `"es"`, `"de"`, `"fr"`, `"it"`, `"nl"`, `"pt"`, `"pt-BR"`, `"pt-PT"`, `"id"`, `"vi"`, `"tr"`, `"pl"`, `"uk"`, `"fa"`, `"ar"`, `"hi"`, `"zh"`, `"zh-CN"`, `"zh-Hans"`, `"zh-Hant"`, `"zh-TW"`, `"zh-HK"`, `"ja"`, `"ko"`, `"th"`                                                                                                                                                                                                           |
-| `namingContextDepth`        | `string`  | `"recent-user-messages"` | How much of the conversation to send to LLM in each renaming prompt:<br><ul><li><code>"first-user-message"</code> — only the first user message</li><li><code>"recent-user-messages"</code> — first user message plus the last 3 user messages</li><li><code>"full-conversation"</code> — the whole conversation (users, assistants, tool calls &amp; results), capped to ~60k chars keeping both the opening (core intent) and the latest tail</li></ul> |
+| `contextStart`              | `integer` | `1`                      | How many user messages to include from the **start** of the conversation in each naming prompt. `0` takes none from the start. |
+| `contextEnd`                | `integer` | `3`                      | How many user messages to include from the **end** of the conversation in each naming prompt. `0` takes none from the end. **If both `contextStart` and `contextEnd` are `0`, there is no naming context and the plugin does not auto-rename.** |
 | `namingModel`               | `string`  | `""`                     | `provider/modelId` override for the naming LLM call. Example: `"openrouter/nvidia/nemotron-3-nano-30b-a3b:free"`. Leave empty to use your configured Pi default model and provider.                                                                                                                                                                                                                                                                       |
 | `customInstructions`        | `string`  | `""`                     | Raw string appended verbatim to the naming LLM's system prompt on every rename call. Use it to inject extra instructions (e.g. `"Prefer short, specific names."`). Leave empty to use the built-in prompt unchanged.                                                                                                                                                                                                                           |
 | `namingStyle`               | `string`  | `"natural"`              | The naming style used for both names:<br><ul><li><code>"natural"</code> — free-form sentence</li><li><code>"slug"</code> — lowercase kebab-case.</li><li><code>"topic-project"</code> — <code>&lt;topic&gt;｜&lt;project&gt;</code>, project derived from current working directory</li></ul>                                                                                                                                                             |

@@ -41,7 +41,8 @@ const EN = await import("../src/locales.js").then((m) => m.LOCALE_STRINGS.en);
 function mkConfig(overrides: Partial<Config> = {}): Config {
   return {
     namingStyle: "natural",
-    namingContextDepth: "recent-user-messages",
+    contextStart: 1,
+    contextEnd: 3,
     namingModel: "",
     language: "en",
     windowNameMaxLength: undefined,

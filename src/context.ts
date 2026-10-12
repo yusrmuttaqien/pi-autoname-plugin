@@ -68,6 +68,8 @@ function getFirstAssistantMessage(entries: readonly SessionEntry[]): string | un
 function getUserMessageContext(
   entries: readonly SessionEntry[],
   currentInput?: string,
+  startCount = 1,
+  endCount = 3,
 ): { firstUserMessage: string; recentUserMessages: string[] } | undefined {
   const userMessages: { index: number; text: string }[] = [];
   for (const [index, entry] of entries.entries()) {
@@ -78,12 +80,29 @@ function getUserMessageContext(
   const cleanInput = currentInput?.trim();
   if (cleanInput)
     userMessages.push({ index: entries.length, text: truncateNamingMessage(cleanInput) });
-  const firstMessage = userMessages[0];
+
+  if (userMessages.length === 0) return undefined;
+  // If both counts are 0 there is no naming context.
+  if (startCount === 0 && endCount === 0) return undefined;
+
+  // First `startCount` + last `endCount`, deduplicated by index, in order.
+  const head = userMessages.slice(0, startCount);
+  const tail = userMessages.slice(Math.max(0, userMessages.length - endCount));
+  const seen = new Set<number>();
+  const selected: { index: number; text: string }[] = [];
+  for (const m of [...head, ...tail]) {
+    if (!seen.has(m.index)) {
+      seen.add(m.index);
+      selected.push(m);
+    }
+  }
+  const firstMessage = selected[0];
   if (!firstMessage) return undefined;
-  const recentMessages = userMessages.slice(-3).filter((m) => m.index !== firstMessage.index);
   return {
     firstUserMessage: firstMessage.text,
-    recentUserMessages: recentMessages.map((m) => m.text),
+    recentUserMessages: selected
+      .filter((m) => m.index !== firstMessage.index)
+      .map((m) => m.text),
   };
 }
 
@@ -159,28 +178,16 @@ export function buildContext(
   currentInput?: string,
 ): NamingContext | undefined {
   // Compaction-aware view: pre-compaction summarized entries are excluded so
-  // "full-conversation" depth does not include stale or duplicated conversation.
+  // the context does not include stale or duplicated conversation.
   const entries = ctx.sessionManager.buildContextEntries();
   const cleanInput = currentInput?.trim() || undefined;
 
-  if (cfg.namingContextDepth === "full-conversation") {
-    const base = buildConversationText(entries);
-    const fullText = cleanInput
-      ? base
-        ? `${base}\n\nUser: ${cleanInput}`
-        : `User: ${cleanInput}`
-      : base;
-    const firstCtx = getUserMessageContext(entries, cleanInput);
-    if (!firstCtx && !fullText) return undefined;
-    return {
-      firstUserMessage: firstCtx?.firstUserMessage ?? "",
-      recentUserMessages: firstCtx?.recentUserMessages ?? [],
-      firstAssistantMessage: getFirstAssistantMessage(entries),
-      fullText,
-    };
-  }
-
-  const firstCtx = getUserMessageContext(entries, cleanInput);
+  const firstCtx = getUserMessageContext(
+    entries,
+    cleanInput,
+    cfg.contextStart,
+    cfg.contextEnd,
+  );
   if (!firstCtx) return undefined;
   return {
     firstUserMessage: firstCtx.firstUserMessage,

@@ -39,14 +39,12 @@ export const ConfigSchema = Type.Object({
     [Type.Literal("natural"), Type.Literal("slug"), Type.Literal("topic-project")],
     { default: "natural" },
   ),
-  namingContextDepth: Type.Union(
-    [
-      Type.Literal("first-user-message"),
-      Type.Literal("recent-user-messages"),
-      Type.Literal("full-conversation"),
-    ],
-    { default: "recent-user-messages" },
-  ),
+  // How many user messages to include from the START and END of the
+  // conversation. The naming context is the first `contextStart` + last
+  // `contextEnd` user messages (deduplicated, in order). If BOTH are 0 there
+  // is no naming context and the plugin does not auto-rename.
+  contextStart: Type.Integer({ minimum: 0, default: 1 }),
+  contextEnd: Type.Integer({ minimum: 0, default: 3 }),
   skipSessionNameDedup: Type.Boolean({ default: false }),
   namingModel: Type.String({ default: "" }),
   // Raw string appended verbatim to the naming LLM's system prompt (empty = off).

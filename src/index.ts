@@ -489,4 +489,29 @@ export default function (pi: ExtensionAPI): void {
     // silently (see naming.ts); post-step generation checks remain as backup.
     generationController.abort();
   });
+
+  /**
+   * On-demand rename: a `/rename` slash command that forces a rename now,
+   * bypassing the `done` latch (so it works after the initial rename has
+   * landed). `inflight` and `autoRenameLocked` are still respected, so a
+   * rename in progress or a locked name is not clobbered. With a UI the LLM
+   * call is deferred so the user's turn is never blocked; headless awaits.
+   */
+  pi.registerCommand("rename", {
+    description: "Rename this session now (on demand)",
+    handler: async (_args, ctx) => {
+      const generation = generationController.signal;
+      if (generation.aborted) return;
+      const cwd = ctx.cwd;
+      const c = await config(cwd);
+      if (generation.aborted) return;
+      if (!c.enabled) return;
+      state.done = false; // bypass the done latch for an on-demand rename
+      if (ctx.hasUI) {
+        renameOnceDeferred(ctx);
+      } else {
+        await renameOnce(ctx);
+      }
+    },
+  });
 }

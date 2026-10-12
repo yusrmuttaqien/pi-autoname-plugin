@@ -42,7 +42,8 @@ function defaultCfg(): Config {
     replaceExistingName: "always",
     respectExternalRenames: true,
     namingStyle: "natural",
-    namingContextDepth: "recent-user-messages",
+    contextStart: 1,
+    contextEnd: 3,
     skipSessionNameDedup: false,
     namingModel: "",
     language: "en",
@@ -76,6 +77,7 @@ function setup(): Harness {
     getSessionName: vi.fn(() => current),
     appendEntry: vi.fn(),
     registerEntryRenderer: vi.fn(),
+    registerCommand: vi.fn(),
     exec: vi.fn(async () => ({ stdout: "", stderr: "", code: 0, killed: false })),
   };
   const ctx = {
@@ -123,7 +125,9 @@ describe("extension registration", () => {
     // turn_end / agent_end are not used — agent_settled is the sole turn boundary.
     expect(events).not.toContain("turn_end");
     expect(events).not.toContain("agent_end");
-    expect(pi.registerCommand).toBeUndefined();
+    // The /rename on-demand command is registered.
+    expect(pi.registerCommand).toHaveBeenCalledTimes(1);
+    expect(pi.registerCommand.mock.calls[0][0]).toBe("rename");
   });
 });
 
@@ -529,5 +533,31 @@ describe("session_start", () => {
     h.pi.exec.mockClear();
     await h.handlers.get("session_start")!({ reason: "new" }, h.ctx);
     expect(h.pi.exec).not.toHaveBeenCalled();
+  });
+});
+
+describe("/rename command", () => {
+  it("triggers a rename on demand, bypassing the done latch", async () => {
+    const h = setup();
+    const [name, options] = h.pi.registerCommand.mock.calls[0];
+    expect(name).toBe("rename");
+    const handler = options.handler;
+    // Initial rename via input (the done latch is set after it lands).
+    await h.handlers.get("input")!({ source: "interactive", text: "Fix OAuth" }, h.ctx);
+    expect(mocks.generateNames).toHaveBeenCalledTimes(1);
+    // A second input is a no-op (done latched)...
+    await h.handlers.get("input")!({ source: "interactive", text: "again" }, h.ctx);
+    expect(mocks.generateNames).toHaveBeenCalledTimes(1);
+    // ...but /rename bypasses the latch and forces a new rename.
+    await handler("", h.ctx);
+    expect(mocks.generateNames).toHaveBeenCalledTimes(2);
+  });
+
+  it("is a no-op when the extension is disabled", async () => {
+    const h = setup();
+    h.setCfg({ enabled: false });
+    const [, options] = h.pi.registerCommand.mock.calls[0];
+    await options.handler("", h.ctx);
+    expect(mocks.generateNames).not.toHaveBeenCalled();
   });
 });

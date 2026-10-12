@@ -11,14 +11,14 @@ function mkCtx(entries: unknown[]) {
   return { sessionManager: { buildContextEntries } } as any;
 }
 
-function cfg(depth: Config["namingContextDepth"]): Config {
-  return { namingContextDepth: depth } as Config;
+function cfg(start: number, end: number): Config {
+  return { contextStart: start, contextEnd: end } as Config;
 }
 
 describe("extractText behavior through buildContext", () => {
   it("reads string user content", async () => {
     const ctx = mkCtx([msg("user", "Hello there")]);
-    const out = await buildContext(ctx, cfg("first-user-message"));
+    const out = await buildContext(ctx, cfg(1, 0));
     expect(out?.firstUserMessage).toBe("Hello there");
   });
 
@@ -30,33 +30,33 @@ describe("extractText behavior through buildContext", () => {
         { type: "text", text: "second part" },
       ]),
     ]);
-    const out = await buildContext(ctx, cfg("first-user-message"));
+    const out = await buildContext(ctx, cfg(1, 0));
     expect(out?.firstUserMessage).toBe("First part\nsecond part");
   });
 
   it("skips empty and whitespace-only user messages", async () => {
     const ctx = mkCtx([msg("user", "   "), msg("user", ""), msg("user", "Real")]);
-    const out = await buildContext(ctx, cfg("first-user-message"));
+    const out = await buildContext(ctx, cfg(1, 0));
     expect(out?.firstUserMessage).toBe("Real");
   });
 
   it("returns undefined when there is no user message", async () => {
     const ctx = mkCtx([msg("assistant", "Hi, how can I help?")]);
-    expect(await buildContext(ctx, cfg("first-user-message"))).toBeUndefined();
+    expect(await buildContext(ctx, cfg(1, 0))).toBeUndefined();
   });
 
   it("seeds the context from the in-progress input when the transcript is empty", async () => {
     // The `input` event fires before pi appends the message, so the first
     // turn has no user message yet without the threaded input.
     const ctx = mkCtx([]);
-    const out = await buildContext(ctx, cfg("recent-user-messages"), "fix oauth please");
+    const out = await buildContext(ctx, cfg(1, 3), "fix oauth please");
     expect(out?.firstUserMessage).toBe("fix oauth please");
     expect(out?.recentUserMessages).toEqual([]);
   });
 
   it("appends the in-progress input after existing messages", async () => {
     const ctx = mkCtx([msg("user", "first"), msg("assistant", "ok")]);
-    const out = await buildContext(ctx, cfg("recent-user-messages"), "second");
+    const out = await buildContext(ctx, cfg(1, 3), "second");
     expect(out?.firstUserMessage).toBe("first");
     expect(out?.recentUserMessages).toEqual(["second"]);
   });
@@ -64,7 +64,7 @@ describe("extractText behavior through buildContext", () => {
   it("truncates oversized messages head+tail with a marker", async () => {
     const big = `head-${"a".repeat(3000)}-tail`;
     const ctx = mkCtx([msg("user", big)]);
-    const out = await buildContext(ctx, cfg("recent-user-messages"));
+    const out = await buildContext(ctx, cfg(1, 3));
     expect(out?.firstUserMessage).toContain("[message truncated]");
     expect(out?.firstUserMessage?.startsWith("head-")).toBe(true);
     expect(out?.firstUserMessage?.endsWith("-tail")).toBe(true);
@@ -74,13 +74,13 @@ describe("extractText behavior through buildContext", () => {
   it("leaves messages at the cap untouched", async () => {
     const exact = "b".repeat(2000);
     const ctx = mkCtx([msg("user", exact)]);
-    const out = await buildContext(ctx, cfg("recent-user-messages"));
+    const out = await buildContext(ctx, cfg(1, 3));
     expect(out?.firstUserMessage).toBe(exact);
   });
 
   it("truncates the in-progress input too", async () => {
     const ctx = mkCtx([]);
-    const out = await buildContext(ctx, cfg("recent-user-messages"), `x${"y".repeat(3000)}z`);
+    const out = await buildContext(ctx, cfg(1, 3), `x${"y".repeat(3000)}z`);
     expect(out?.firstUserMessage).toContain("[message truncated]");
   });
 });
@@ -95,21 +95,21 @@ describe("recent-user-messages depth", () => {
       msg("user", "four"),
       msg("user", "five"),
     ]);
-    const out = await buildContext(ctx, cfg("recent-user-messages"));
+    const out = await buildContext(ctx, cfg(1, 3));
     expect(out?.firstUserMessage).toBe("first");
     expect(out?.recentUserMessages).toEqual(["three", "four", "five"]);
   });
 
   it("excludes the first message from recent even when it is among the last 3", async () => {
     const ctx = mkCtx([msg("user", "first"), msg("user", "second"), msg("user", "third")]);
-    const out = await buildContext(ctx, cfg("recent-user-messages"));
+    const out = await buildContext(ctx, cfg(1, 3));
     expect(out?.firstUserMessage).toBe("first");
     expect(out?.recentUserMessages).toEqual(["second", "third"]);
   });
 
   it("returns an empty recent list when only one user message exists", async () => {
     const ctx = mkCtx([msg("user", "only")]);
-    const out = await buildContext(ctx, cfg("recent-user-messages"));
+    const out = await buildContext(ctx, cfg(1, 3));
     expect(out?.recentUserMessages).toEqual([]);
   });
 
@@ -119,108 +119,14 @@ describe("recent-user-messages depth", () => {
       msg("assistant", "I will help you"),
       msg("user", "do it"),
     ]);
-    const out = await buildContext(ctx, cfg("recent-user-messages"));
+    const out = await buildContext(ctx, cfg(1, 3));
     expect(out?.firstAssistantMessage).toBe("I will help you");
   });
 
   it("uses the compaction-aware buildContextEntries view", async () => {
     const ctx = mkCtx([msg("user", "x")]);
-    await buildContext(ctx, cfg("recent-user-messages"));
+    await buildContext(ctx, cfg(1, 3));
     expect(ctx.sessionManager.buildContextEntries).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("full-conversation depth", () => {
-  it("serializes User:/Assistant:/Tool lines", async () => {
-    const ctx = mkCtx([
-      msg("user", "first"),
-      msg("assistant", [
-        { type: "text", text: "Let me check" },
-        {
-          type: "toolCall",
-          name: "read",
-          arguments: { path: "a.ts" },
-        },
-      ]),
-      msg("user", "thanks"),
-    ]);
-    const out = await buildContext(ctx, cfg("full-conversation"));
-    expect(out?.fullText).toContain("User: first");
-    expect(out?.fullText).toContain("Assistant: Let me check");
-    expect(out?.fullText).toContain('read tool called; args {"path":"a.ts"}');
-    expect(out?.fullText).toContain("User: thanks");
-  });
-
-  it("still returns firstUserMessage and firstAssistantMessage", async () => {
-    const ctx = mkCtx([msg("user", "hello"), msg("assistant", "hi")]);
-    const out = await buildContext(ctx, cfg("full-conversation"));
-    expect(out?.firstUserMessage).toBe("hello");
-    expect(out?.firstAssistantMessage).toBe("hi");
-  });
-
-  it("returns a context with empty first message when only non-user content exists", async () => {
-    const ctx = mkCtx([msg("assistant", "hello")]);
-    const out = await buildContext(ctx, cfg("full-conversation"));
-    expect(out).toBeDefined();
-    expect(out?.firstUserMessage).toBe("");
-    expect(out?.recentUserMessages).toEqual([]);
-    expect(out?.fullText).toContain("Assistant: hello");
-  });
-
-  it("truncates oversized conversations keeping the head and the newest tail", async () => {
-    const longAssistant = "a".repeat(70_000);
-    const ctx = mkCtx([msg("user", "start"), msg("assistant", longAssistant)]);
-    const out = await buildContext(ctx, cfg("full-conversation"));
-    expect(out?.fullText).toContain("[Earlier conversation omitted]");
-    // both the topic-defining head and the most recent tail survive truncation
-    expect(out?.fullText?.startsWith("User: start")).toBe(true);
-    expect(out?.fullText?.endsWith(longAssistant.slice(-100))).toBe(true);
-    // content is capped at the budget plus a bounded omission-marker overhead
-    expect(out!.fullText!.length).toBeLessThanOrEqual(60_000 + 64);
-  });
-
-  it("preserves the topic-defining opening when the conversation overflows", async () => {
-    const longAssistant = "b".repeat(70_000);
-    const ctx = mkCtx([msg("user", "FIX THE OAUTH CALLBACK"), msg("assistant", longAssistant)]);
-    const out = await buildContext(ctx, cfg("full-conversation"));
-    expect(out!.fullText!.startsWith("User: FIX THE OAUTH CALLBACK")).toBe(true);
-  });
-
-  it("serializes tool results alongside their calls", async () => {
-    const ctx = mkCtx([
-      msg("user", "first"),
-      msg("assistant", [{ type: "toolCall", name: "read", arguments: { path: "a.ts" } }]),
-      {
-        type: "message",
-        message: {
-          role: "toolResult",
-          toolCallId: "call_1",
-          toolName: "read",
-          isError: false,
-          content: [{ type: "text", text: "found the bug in a.ts" }],
-        },
-      },
-    ]);
-    const out = await buildContext(ctx, cfg("full-conversation"));
-    expect(out?.fullText).toContain('read tool called; args {"path":"a.ts"}');
-    expect(out?.fullText).toContain("Result from read: found the bug in a.ts");
-  });
-
-  it("marks failed tool results as errors", async () => {
-    const ctx = mkCtx([
-      {
-        type: "message",
-        message: {
-          role: "toolResult",
-          toolCallId: "call_2",
-          toolName: "grep",
-          isError: true,
-          content: [{ type: "text", text: "no matches found" }],
-        },
-      },
-    ]);
-    const out = await buildContext(ctx, cfg("full-conversation"));
-    expect(out?.fullText).toContain("Result from grep");
-    expect(out?.fullText).toContain("[error]");
-  });
-});
